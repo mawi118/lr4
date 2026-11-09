@@ -1,0 +1,11 @@
+# Редакторы и ОС
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+.DS_Store
+
+# Временные файлы
+*.log
+tmp/
