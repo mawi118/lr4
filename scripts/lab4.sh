@@ -101,7 +101,7 @@ student_in_other_group() {
 remove_notes() {
     local current_group=$1 target=$2 file line state tmp
     if student_in_other_group "$current_group" "$target"; then
-        printf 'Заметка сохранена: идентификатор %s используется в другой группе.\\n' "$target"
+        printf 'Заметка сохранена: идентификатор %s используется в другой группе.\n' "$target"
         return 0
     fi
     for file in "$DATA/students/general/notes/"*Names.log; do
@@ -112,7 +112,7 @@ remove_notes() {
         while IFS= read -r line || [[ -n "$line" ]]; do
             if [[ "$line" =~ ^[=[:space:]]+$ && "$line" == *'='* ]]; then
                 state=1
-                printf '%s\\n' "$line" >> "$tmp"
+                printf '%s\n' "$line" >> "$tmp"
                 continue
             fi
             if ((state==1)); then
@@ -126,7 +126,7 @@ remove_notes() {
                 state=0
                 continue
             fi
-            printf '%s\\n' "$line" >> "$tmp"
+            printf '%s\n' "$line" >> "$tmp"
         done < "$file"
         mv -- "$tmp" "$file" || return 1
     done
