@@ -251,6 +251,25 @@ show_leader() {
     printf 'Максимум правильных ответов: %d\n' "$max"
     printf 'Студенты:\n'; printf ' - %s\n' "${leaders[@]}"
 }
+show_ranking() {
+    local student tmp score
+    ask_group || return 1
+    select_subject || return 1
+    tmp="$BASE/.ranking.$$"; : > "$tmp" || return 1
+    while IFS= read -r student || [[ -n "$student" ]]; do
+        collect_tests "$GROUP" "$student"
+        if ((T_COUNT>0)); then score=$((T_GRADE_SUM*10000/T_COUNT)); printf '%d;%s;%d;%d\n' "$score" "$student" "$T_GRADE_SUM" "$T_COUNT" >> "$tmp"
+        else printf '%d;%s;%d;%d\n' -1 "$student" 0 0 >> "$tmp"; fi
+    done < "$DATA/students/groups/$GROUP"
+    printf 'Рейтинг группы %s (средний балл по всем попыткам):\n' "$GROUP"
+    local rank=0 qsum count
+    while IFS=';' read -r score student qsum count; do
+        rank=$((rank+1)); printf '%2d. %-22s ' "$rank" "$student"
+        if ((count>0)); then print_average "$qsum" "$count"; printf ' (%d попыток)\n' "$count"
+        else printf 'нет оценок\n'; fi
+    done < <(sort -t';' -k1,1nr -k2,2 "$tmp")
+    rm -f -- "$tmp"
+}
 delete_dossier() {
     local mode answer
     choose_student || return 1
@@ -273,16 +292,11 @@ main() {
     local choice
     check_data || return 1
     while true; do
-        printf '\n===== ЛР №4: F1 + F2 + F3 =====\n'
-        printf '1. Лучшая посещаемость за период\n2. Максимум правильных ответов\n3. Найти досье\n4. Удалить досье\n0. Выход\nВыбор: '
+        printf '\n===== ЛР №4: АНАЛИЗ СТУДЕНТОВ =====\n'
+        printf '1. Лучшая посещаемость за период\n2. Максимум правильных ответов\n3. Найти досье\n4. Удалить досье\n5. Рейтинг успеваемости\n0. Выход\nВыбор: '
         read -r choice || break
         case "$choice" in
-            1) show_attendance;;
-            2) show_leader;;
-            3) show_dossier;;
-            4) delete_dossier;;
-            0) break;;
-            *) printf 'Введите цифру от 0 до 4.\n';;
+            1) show_attendance;; 2) show_leader;; 3) show_dossier;; 4) delete_dossier;; 5) show_ranking;; 0) break;; *) printf 'Введите цифру от 0 до 5.\n';;
         esac
     done
 }
