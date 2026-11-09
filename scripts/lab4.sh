@@ -75,6 +75,138 @@ attendance_all() {
         A_TOTAL=$((A_TOTAL + ATT_TOTAL))
     done
 }
+# Заметки: разделители из '=' + пробелы; следующая строка — ID студента.
+show_note() {
+    local wanted=$1 file line state=0 found=1
+    for file in "$DATA/students/general/notes/"*Names.log; do
+        [[ -f "$file" ]] || continue
+        state=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" =~ ^[=[:space:]]+$ && "$line" == *'='* ]]; then state=1; continue; fi
+            if ((state==1)); then
+                if [[ "$line" == "$wanted" ]]; then state=2; found=0; else state=0; fi
+            elif ((state==2)); then
+                printf '%s\n' "$line"
+                state=0
+            fi
+        done < "$file"
+    done
+    return "$found"
+}
+# При удалении заметки сохраняем записи других студентов.
+remove_notes() {
+    local target=$1 file line state tmp name next
+    for file in "$DATA/students/general/notes/"*Names.log; do
+        [[ -f "$file" ]] || continue
+        tmp="$file.tmp.$$"; : > "$tmp" || return 1
+        state=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" =~ ^[=[:space:]]+$ && "$line" == *'='* ]]; then
+                state=1; printf '%s\n' "$line" >> "$tmp"; continue
+            fi
+            if ((state==1)); then
+                if [[ "$line" == "$target" ]]; then
+                    # Удаляем идентификатор и следующую строку текста. Разделители остаются.
+                    state=3
+                    # Убираем только что записанный разделитель из результата.
+                    sed '$d' "$tmp" > "$tmp.next" && mv -- "$tmp.next" "$tmp" || return 1
+                    continue
+                fi
+                state=0
+            elif ((state==3)); then
+                state=0
+                continue
+            fi
+            printf '%s\n' "$line" >> "$tmp"
+        done < "$file"
+        mv -- "$tmp" "$file" || return 1
+    done
+}
+# Отбрасываем записи конкретного студента, оставляя других без изменений.
+remove_from_group() {
+    local g=$1 student=$2 path="$DATA/students/groups/$1" tmp
+    tmp="$path.tmp.$$"
+    grep -Fvx -- "$student" "$path" > "$tmp" || [[ $? -eq 1 ]] || return 1
+    mv -- "$tmp" "$path"
+}
+remove_from_attendance() {
+    local g=$1 student=$2 sub path tmp name bits
+    for sub in 0 1; do
+        path="$DATA/${SUBJECTS[$sub]}/$g-attendance"
+        [[ -f "$path" ]] || continue
+        tmp="$path.tmp.$$"; : > "$tmp" || return 1
+        while read -r name bits || [[ -n "$name" ]]; do
+            [[ "$name" == "$student" ]] || printf '%s %s\n' "$name" "$bits" >> "$tmp"
+        done < "$path"
+        mv -- "$tmp" "$path" || return 1
+    done
+}
+remove_from_tests() {
+    local g=$1 student=$2 sub file tmp line rec_group rec_student rest
+    for sub in 0 1; do
+        for file in "$DATA/${SUBJECTS[$sub]}/tests/"TEST-*; do
+            [[ -f "$file" ]] || continue
+            tmp="$file.tmp.$$"; : > "$tmp" || return 1
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                IFS=';' read -r rec_group rec_student rest <<< "$line"
+                [[ "$rec_group" == "$g" && "$rec_student" == "$student" ]] || printf '%s\n' "$line" >> "$tmp"
+            done < "$file"
+            mv -- "$tmp" "$file" || return 1
+        done
+    done
+}
+# Поиск по идентификатору или фамилии без учёта регистра (без регулярных выражений).
+find_students() {
+    local query=$1 file student group lower_query lower_student
+    MATCH_GROUPS=(); MATCH_STUDENTS=()
+    lower_query="${query,,}"
+    for file in "$DATA/students/groups/"*; do
+        [[ -f "$file" ]] || continue
+        group="${file##*/}"
+        while IFS= read -r student || [[ -n "$student" ]]; do
+            lower_student="${student,,}"
+            if [[ "$lower_student" == "$lower_query" || "$lower_student" == "$lower_query"[a-z]* ]]; then
+                MATCH_GROUPS+=("$group")
+                MATCH_STUDENTS+=("$student")
+            fi
+        done < "$file"
+    done
+}
+choose_student() {
+    local query i answer
+    printf 'Фамилия или полный идентификатор: '
+    read -r query || return 1
+    [[ "$query" =~ ^[[:alpha:]]+$ ]] || { fail 'Введите фамилию латиницей (без пробелов).'; return 1; }
+    find_students "$query"
+    ((${#MATCH_STUDENTS[@]}>0)) || { fail 'Студент не найден.'; return 1; }
+    printf 'Найденные студенты:\n'
+    for ((i=0;i<${#MATCH_STUDENTS[@]};i++)); do printf '%d) %s — %s\n' "$((i+1))" "${MATCH_STUDENTS[$i]}" "${MATCH_GROUPS[$i]}"; done
+    printf 'Номер: '; read -r answer || return 1
+    [[ "$answer" =~ ^[0-9]+$ ]] && ((10#$answer>=1 && 10#$answer<=${#MATCH_STUDENTS[@]})) || { fail 'Некорректный номер.'; return 1; }
+    STUDENT="${MATCH_STUDENTS[$((10#$answer-1))]}"
+    GROUP="${MATCH_GROUPS[$((10#$answer-1))]}"
+}
+show_dossier() {
+    local mode sub
+    choose_student || return 1
+    printf '1 — только заметки, 2 — полное досье: '; read -r mode || return 1
+    case "$mode" in 1|2);; *) fail 'Неверный вариант.'; return 1;; esac
+    printf '\nСтудент: %s | группа: %s\n' "$STUDENT" "$GROUP"
+    if [[ "$mode" == 2 ]]; then
+        for sub in 0 1; do
+            SELECTION=("$sub")
+            attendance_all "$GROUP" "$STUDENT"
+            collect_tests "$GROUP" "$STUDENT"
+            printf 'Предмет: %s | посещаемость: %s/%s (' "${SUBJECTS[$sub]}" "$A_PRESENT" "$A_TOTAL"
+            print_percent "$A_PRESENT" "$A_TOTAL"
+            printf ') | правильные ответы: %s | попытки: %s | средний балл: ' "$T_CORRECT" "$T_COUNT"
+            if ((T_COUNT>0)); then print_average "$T_GRADE_SUM" "$T_COUNT"; else printf 'нет данных'; fi
+            printf '\n'
+        done
+    fi
+    printf 'Заметки преподавателя:\n'
+    show_note "$STUDENT" || printf 'Заметки отсутствуют.\n'
+}
 # Год рассчитывается по последним двум цифрам группы + 3.
 show_attendance() {
     local from to year student present total best=-1 line group
@@ -119,19 +251,38 @@ show_leader() {
     printf 'Максимум правильных ответов: %d\n' "$max"
     printf 'Студенты:\n'; printf ' - %s\n' "${leaders[@]}"
 }
+delete_dossier() {
+    local mode answer
+    choose_student || return 1
+    printf '1 — удалить только заметки, 2 — удалить студента из всех файлов: '
+    read -r mode || return 1
+    [[ "$mode" == 1 || "$mode" == 2 ]] || { fail 'Неверный вариант.'; return 1; }
+    printf 'Подтвердить удаление %s (группа %s)? 1 — да, 2 — нет: ' "$STUDENT" "$GROUP"
+    read -r answer || return 1
+    [[ "$answer" == 1 ]] || { printf 'Отменено.\n'; return 0; }
+    remove_notes "$STUDENT" || return 1
+    if [[ "$mode" == 2 ]]; then
+        remove_from_group "$GROUP" "$STUDENT" || return 1
+        remove_from_attendance "$GROUP" "$STUDENT" || return 1
+        remove_from_tests "$GROUP" "$STUDENT" || return 1
+    fi
+    printf 'Удаление выполнено.\n'
+}
 
 main() {
     local choice
     check_data || return 1
     while true; do
-        printf '\n===== ЛР №4: F1 + F2 =====\n'
-        printf '1. Лучшая посещаемость за период\n2. Максимум правильных ответов\n0. Выход\nВыбор: '
+        printf '\n===== ЛР №4: F1 + F2 + F3 =====\n'
+        printf '1. Лучшая посещаемость за период\n2. Максимум правильных ответов\n3. Найти досье\n4. Удалить досье\n0. Выход\nВыбор: '
         read -r choice || break
         case "$choice" in
             1) show_attendance;;
             2) show_leader;;
+            3) show_dossier;;
+            4) delete_dossier;;
             0) break;;
-            *) printf 'Введите цифру от 0 до 2.\n';;
+            *) printf 'Введите цифру от 0 до 4.\n';;
         esac
     done
 }
