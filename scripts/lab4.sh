@@ -23,6 +23,33 @@ ask_group() {
     read -r GROUP || return 1
     valid_group "$GROUP" || fail "Группа '$GROUP' не найдена."
 }
+# Список всех попыток из четырёх файлов: поля group;student;date;correct;grade.
+# Значения читаются через Bash read, без awk.
+collect_tests() {
+    local g=$1 s=$2 sub file rec_group rec_student date correct grade
+    T_CORRECT=0; T_GRADE_SUM=0; T_COUNT=0
+    for sub in "${SELECTION[@]}"; do
+        for file in "$DATA/${SUBJECTS[$sub]}/tests/"TEST-*; do
+            [[ -f "$file" ]] || continue
+            while IFS=';' read -r rec_group rec_student date correct grade || [[ -n "$rec_group" ]]; do
+                [[ "$rec_group" == "$g" && "$rec_student" == "$s" ]] || continue
+                [[ "$correct" =~ ^[0-9]+$ ]] || continue
+                T_CORRECT=$((T_CORRECT + 10#$correct))
+                grade_to_quarters "$grade" || continue
+                T_GRADE_SUM=$((T_GRADE_SUM + GRADE_Q))
+                T_COUNT=$((T_COUNT + 1))
+            done < "$file"
+        done
+    done
+}
+# Оценка хранится в четвертях балла: 4+ -> 17, 4-- -> 14.
+grade_to_quarters() {
+    local value=$1 base signs
+    [[ "$value" =~ ^([2-5])(\+\+|\+|--|-)?$ ]] || return 1
+    base="${BASH_REMATCH[1]}"; signs="${BASH_REMATCH[2]}"
+    GRADE_Q=$((base * 4))
+    case "$signs" in +) GRADE_Q=$((GRADE_Q+1));; ++) GRADE_Q=$((GRADE_Q+2));; -) GRADE_Q=$((GRADE_Q-1));; --) GRADE_Q=$((GRADE_Q-2));; esac
+}
 # Процент × 100 (сотые процента), только целочисленная арифметика.
 print_percent() { local value=$1 total=$2 p=0; ((total>0)) && p=$((value*10000/total)); printf '%d.%02d%%' "$((p/100))" "$((p%100))"; }
 # Средний балл × 100 из суммы четвертей и числа попыток.
@@ -77,18 +104,34 @@ show_attendance() {
         printf '%s — %d/%d (' "$student" "$A_PRESENT" "$A_TOTAL"; print_percent "$A_PRESENT" "$A_TOTAL"; printf ')\n'
     done
 }
+show_leader() {
+    local student max=-1
+    ask_group || return 1
+    select_subject || return 1
+    local -a leaders=()
+    while IFS= read -r student || [[ -n "$student" ]]; do
+        collect_tests "$GROUP" "$student"
+        if ((T_COUNT==0)); then continue; fi
+        if ((T_CORRECT>max)); then max="$T_CORRECT"; leaders=("$student")
+        elif ((T_CORRECT==max)); then leaders+=("$student"); fi
+    done < "$DATA/students/groups/$GROUP"
+    if ((${#leaders[@]}==0)); then printf 'Результаты тестирования отсутствуют.\n'; return 0; fi
+    printf 'Максимум правильных ответов: %d\n' "$max"
+    printf 'Студенты:\n'; printf ' - %s\n' "${leaders[@]}"
+}
 
 main() {
     local choice
     check_data || return 1
     while true; do
-        printf '\n===== ЛР №4: F1 — ПОСЕЩАЕМОСТЬ =====\n'
-        printf '1. Лучшая посещаемость за период\n0. Выход\nВыбор: '
+        printf '\n===== ЛР №4: F1 + F2 =====\n'
+        printf '1. Лучшая посещаемость за период\n2. Максимум правильных ответов\n0. Выход\nВыбор: '
         read -r choice || break
         case "$choice" in
             1) show_attendance;;
+            2) show_leader;;
             0) break;;
-            *) printf 'Введите 0 или 1.\n';;
+            *) printf 'Введите цифру от 0 до 2.\n';;
         esac
     done
 }
