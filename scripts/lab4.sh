@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Лабораторная работа №4. Консольный анализ файловой системы преподавателя.
-# Используются встроенные средства Bash, grep, sed, sort, find, cut, wc.
 set -o pipefail
 BASE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DATA="$BASE/labfiles-3-26"
@@ -23,8 +21,6 @@ ask_group() {
     read -r GROUP || return 1
     valid_group "$GROUP" || fail "Группа '$GROUP' не найдена."
 }
-# Список всех попыток из четырёх файлов: поля group;student;date;correct;grade.
-# Значения читаются через Bash read, без awk.
 collect_tests() {
     local g=$1 s=$2 sub file rec_group rec_student date correct grade
     T_CORRECT=0; T_GRADE_SUM=0; T_COUNT=0
@@ -42,7 +38,6 @@ collect_tests() {
         done
     done
 }
-# Оценка хранится в четвертях балла: 4+ -> 17, 4-- -> 14.
 grade_to_quarters() {
     local value=$1 base signs
     [[ "$value" =~ ^([2-5])(\+\+|\+|--|-)?$ ]] || return 1
@@ -50,9 +45,7 @@ grade_to_quarters() {
     GRADE_Q=$((base * 4))
     case "$signs" in +) GRADE_Q=$((GRADE_Q+1));; ++) GRADE_Q=$((GRADE_Q+2));; -) GRADE_Q=$((GRADE_Q-1));; --) GRADE_Q=$((GRADE_Q-2));; esac
 }
-# Процент × 100 (сотые процента), только целочисленная арифметика.
 print_percent() { local value=$1 total=$2 p=0; ((total>0)) && p=$((value*10000/total)); printf '%d.%02d%%' "$((p/100))" "$((p%100))"; }
-# Средний балл × 100 из суммы четвертей и числа попыток.
 print_average() { local qsum=$1 count=$2 scaled=0; ((count>0)) && scaled=$((qsum*25/count)); printf '%d.%02d' "$((scaled/100))" "$((scaled%100))"; }
 attendance_one() {
     local g=$1 student=$2 sub=$3 path bits
@@ -75,7 +68,6 @@ attendance_all() {
         A_TOTAL=$((A_TOTAL + ATT_TOTAL))
     done
 }
-# Заметки: разделители из '=' + пробелы; следующая строка — ID студента.
 show_note() {
     local wanted=$1 file line state=0 found=1
     for file in "$DATA/students/general/notes/"*Names.log; do
@@ -93,36 +85,52 @@ show_note() {
     done
     return "$found"
 }
-# При удалении заметки сохраняем записи других студентов.
+student_in_other_group() {
+    local current_group=$1 student=$2 file group
+    for file in "$DATA/students/groups/"*; do
+        [[ -f "$file" ]] || continue
+        group="${file##*/}"
+        [[ "$group" == "$current_group" ]] && continue
+        if grep -Fqx -- "$student" "$file"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 remove_notes() {
-    local target=$1 file line state tmp name next
+    local current_group=$1 target=$2 file line state tmp
+    if student_in_other_group "$current_group" "$target"; then
+        printf 'Заметка сохранена: идентификатор %s используется в другой группе.\\n' "$target"
+        return 0
+    fi
     for file in "$DATA/students/general/notes/"*Names.log; do
         [[ -f "$file" ]] || continue
-        tmp="$file.tmp.$$"; : > "$tmp" || return 1
+        tmp="$file.tmp.$$"
+        : > "$tmp" || return 1
         state=0
         while IFS= read -r line || [[ -n "$line" ]]; do
             if [[ "$line" =~ ^[=[:space:]]+$ && "$line" == *'='* ]]; then
-                state=1; printf '%s\n' "$line" >> "$tmp"; continue
+                state=1
+                printf '%s\\n' "$line" >> "$tmp"
+                continue
             fi
             if ((state==1)); then
                 if [[ "$line" == "$target" ]]; then
-                    # Удаляем идентификатор и следующую строку текста. Разделители остаются.
-                    state=3
-                    # Убираем только что записанный разделитель из результата.
                     sed '$d' "$tmp" > "$tmp.next" && mv -- "$tmp.next" "$tmp" || return 1
+                    state=2
                     continue
                 fi
                 state=0
-            elif ((state==3)); then
+            elif ((state==2)); then
                 state=0
                 continue
             fi
-            printf '%s\n' "$line" >> "$tmp"
+            printf '%s\\n' "$line" >> "$tmp"
         done < "$file"
         mv -- "$tmp" "$file" || return 1
     done
 }
-# Отбрасываем записи конкретного студента, оставляя других без изменений.
 remove_from_group() {
     local g=$1 student=$2 path="$DATA/students/groups/$1" tmp
     tmp="$path.tmp.$$"
@@ -155,7 +163,6 @@ remove_from_tests() {
         done
     done
 }
-# Поиск по идентификатору или фамилии без учёта регистра (без регулярных выражений).
 find_students() {
     local query=$1 file student group lower_query lower_student
     MATCH_GROUPS=(); MATCH_STUDENTS=()
@@ -207,7 +214,6 @@ show_dossier() {
     printf 'Заметки преподавателя:\n'
     show_note "$STUDENT" || printf 'Заметки отсутствуют.\n'
 }
-# Год рассчитывается по последним двум цифрам группы + 3.
 show_attendance() {
     local from to year student present total best=-1 line group
     printf 'Год начала периода (2000–2099): '; read -r from || return 1
@@ -225,7 +231,6 @@ show_attendance() {
     while IFS= read -r student || [[ -n "$student" ]]; do
         attendance_all "$group" "$student"
         ((A_TOTAL>0)) || continue
-        # Сравнение долей через перемножение: количество занятий может различаться.
         if ((best<0 || A_PRESENT*best_total>best*A_TOTAL)); then
             best="$A_PRESENT"; best_total="$A_TOTAL"; leaders=("$student")
         elif ((A_PRESENT*best_total==best*A_TOTAL)); then leaders+=("$student"); fi
@@ -279,7 +284,7 @@ delete_dossier() {
     printf 'Подтвердить удаление %s (группа %s)? 1 — да, 2 — нет: ' "$STUDENT" "$GROUP"
     read -r answer || return 1
     [[ "$answer" == 1 ]] || { printf 'Отменено.\n'; return 0; }
-    remove_notes "$STUDENT" || return 1
+    remove_notes "$GROUP" "$STUDENT" || return 1
     if [[ "$mode" == 2 ]]; then
         remove_from_group "$GROUP" "$STUDENT" || return 1
         remove_from_attendance "$GROUP" "$STUDENT" || return 1
