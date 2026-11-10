@@ -30,7 +30,3 @@
 - [Отчёт о тестировании](docs/test-report.md)
 - [Тест-кейсы](tests/test-cases.md)
 - Роли: [менеджер](docs/roles/manager.md) · [аналитик](docs/roles/analyst.md) · [разработчик](docs/roles/developer.md) · [QA](docs/roles/qa.md)
-
-## Как запустить
-
-_Заполняет аналитик после готовности решения._
