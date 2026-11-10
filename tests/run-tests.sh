@@ -6,7 +6,7 @@ SRC="$ROOT/tests/data/synthetic/labfiles-3-26"
 TEMP="$(mktemp -d /tmp/lr4-qa.XXXXXX)" || exit 2
 cleanup() { [[ "$TEMP" == /tmp/lr4-qa.* && -d "$TEMP" ]] && rm -r -- "$TEMP"; }
 trap cleanup EXIT
-PASS=0 FAIL=0 NOT_SPECIFIED=0
+PASS=0 FAIL=0
 
 tree_hash() {
     (cd -- "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
@@ -52,18 +52,6 @@ rank_order() {
     done
 }
 rank_value() { grep -F -- "$1" "$OUT" | grep -Fq -- "$2 ($3 попыток)" || error "Неверный балл или число попыток: $1"; }
-unspecified() {
-    [[ "$(tree_hash "$BEFORE")" == "$(tree_hash "$WORK/labfiles-3-26")" ]] || error 'Данные изменились'
-    if ((BAD)); then finish; return; fi
-    printf 'NOT_SPECIFIED %s\n' "$ID"
-    NOT_SPECIFIED=$((NOT_SPECIFIED+1))
-}
-unspecified_changed() {
-    [[ "$(tree_hash "$BEFORE")" != "$(tree_hash "$WORK/labfiles-3-26")" ]] || error 'Ожидаемое изменение данных не произошло'
-    if ((BAD)); then finish_changed; return; fi
-    printf 'NOT_SPECIFIED %s\n' "$ID"
-    NOT_SPECIFIED=$((NOT_SPECIFIED+1))
-}
 start() {
     ID=$1 INPUT=$2 VARIANT=${3:-normal} BAD=0
     CASE="$(mktemp -d "$TEMP/$ID.XXXXXX")" || exit 2
@@ -129,7 +117,7 @@ start F2-04 $'2\nA-06-21\n3\n0\n'; has 'Результаты тестирова�
 start F2-05 $'2\nA-06-23\n3\n0\n' no_tests; has 'Результаты тестирования отсутствуют.'; finish
 start F2-06 $'2\nA-06-25\n1\n0\n'; has 'Максимум правильных ответов: 0'; has ' - ZeroZZ'; finish
 start F2-07 $'2\nA-06-23\n1\n0\n' bad_count; has 'Максимум правильных ответов: 8'; finish
-start F2-08 $'2\nA-06-23\n1\n0\n' bad_grade; has 'Максимум правильных ответов: 13'; unspecified
+start F2-08 $'2\nA-06-23\n1\n0\n' bad_grade; has 'Максимум правильных ответов: 13'; finish
 start F2-09 $'2\nA-00-00\n3\n0\n'; has "Группа 'A-00-00' не найдена."; finish
 start F2-10 $'2\nA-06-24\n1\n0\n' no_lf_test; has 'Максимум правильных ответов: 6'; has ' - TwinTT'; finish
 start F2-11 $'2\nA-06-23\n9\n0\n'; has 'Выберите 1, 2 или 3.'; finish
@@ -151,8 +139,8 @@ start F3-13 $'4\nIvanovII\n1\n2\n1\n0\n'; has 'Удаление выполнен
 start F3-14 $'4\nSmirnovAA\n1\n2\n1\n2\nA-06-23\n3\n5\nA-06-23\n3\n1\n2026\n2026\n3\nA-06-23\n0\n'; has 'Максимум правильных ответов: 12'; has 'Рейтинг группы A-06-23'; has 'IvanovII — 4/6'; file_lacks 'students/groups/A-06-23' 'SmirnovAA'; no_rank_temp; finish_changed
 start F3-15 $'4\nSmirnovAA\n1\n2\n9\n0\n'; has 'Отменено.'; finish
 start F3-16 $'3\nIvanovII\n1\n1\n0\n' no_lf_note; has 'Заметка Иванова.'; finish
-start F3-17 $'3\nSmirnovAA\n1\n1\n0\n' multiline_note; has 'Первая строка.'; lacks 'Вторая строка.'; unspecified
-start F3-18 $'4\nSmirnovAA\n1\n1\n1\n0\n' multiline_note; file_lacks 'students/general/notes/SNames.log' 'Первая строка.'; file_has 'students/general/notes/SNames.log' 'Вторая строка.'; unspecified_changed
+start F3-17 $'3\nSmirnovAA\n1\n1\n0\n' multiline_note; has 'Первая строка.'; lacks 'Вторая строка.'; finish
+start F3-18 $'4\nSmirnovAA\n1\n1\n1\n0\n' multiline_note; file_lacks 'students/general/notes/SNames.log' 'Первая строка.'; file_has 'students/general/notes/SNames.log' 'Вторая строка.'; finish_changed
 start F3-19 $'4\nSmirnovAA\n1\n2\n1\n3\nSmirnovAA\n0\n'; has 'Удаление выполнено.'; has 'Студент не найден.'; file_lacks 'students/groups/A-06-23' 'SmirnovAA'; finish_changed
 
 start F4-01 $'5\nA-06-23\n3\n0\n'; rank_order SmirnovBB PetrovPA IvanovII SidorovSS SmirnovAA EmptyEE; rank_value SmirnovBB 4.50 2; rank_value PetrovPA 4.00 2; rank_value IvanovII 3.83 3; rank_value SidorovSS 3.50 2; rank_value SmirnovAA 2.00 2; has 'нет оценок'; no_rank_temp; finish
@@ -168,5 +156,5 @@ ID=G-07 BAD=0
 [[ "$(tree_hash "$SRC")" == "$DATA_HASH" ]] || error 'Исходная синтетическая ФС изменилась'
 [[ "$(sha256sum "$ROOT/scripts/lab4.sh" | cut -d' ' -f1)" == "$SCRIPT_HASH" ]] || error 'Исходный скрипт изменился'
 if ((BAD)); then printf 'FAIL %s\n' "$ID"; FAIL=$((FAIL+1)); else printf 'PASS %s\n' "$ID"; PASS=$((PASS+1)); fi
-printf 'ИТОГО: PASS=%d FAIL=%d NOT_SPECIFIED=%d\n' "$PASS" "$FAIL" "$NOT_SPECIFIED"
+printf 'ИТОГО: PASS=%d FAIL=%d\n' "$PASS" "$FAIL"
 ((FAIL==0))
